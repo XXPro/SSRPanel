@@ -2,7 +2,7 @@
 
 Route::get('s/{code}', 'SubscribeController@index'); // 节点订阅地址
 
-Route::group(['middleware' => ['forbidden']], function () {
+Route::group(['middleware' => ['forbidden', 'affiliate']], function () {
     Route::get('lang/{locale}', 'UserController@switchLang'); // 语言切换
     Route::any('login', 'LoginController@index'); // 登录
     Route::get('logout', 'LoginController@logout'); // 退出
@@ -19,6 +19,7 @@ Route::group(['middleware' => ['forbidden', 'user', 'admin']], function () {
     Route::get('admin/userList', 'AdminController@userList'); // 账号列表
     Route::any('admin/addUser', 'AdminController@addUser'); // 添加账号
     Route::post('admin/batchAddUsers', 'AdminController@batchAddUsers'); // 批量生成账号
+    Route::get('admin/exportSSJson', 'AdminController@exportSSJson'); // 导出原版SS的json配置信息
     Route::any('admin/editUser', 'AdminController@editUser'); // 编辑账号
     Route::post('admin/delUser', 'AdminController@delUser'); // 删除账号
     Route::get('admin/nodeList', 'AdminController@nodeList'); // 节点列表
@@ -71,7 +72,7 @@ Route::group(['middleware' => ['forbidden', 'user', 'admin']], function () {
     Route::get('admin/system', 'AdminController@system'); // 系统设置
     Route::post('admin/setConfig', 'AdminController@setConfig'); // 设置某个配置项
     Route::post('admin/setReferralPercent', 'AdminController@setReferralPercent'); // 设置返利比例
-    Route::post('admin/setQrcode', 'AdminController@setQrcode'); // 设置充值二维码
+    Route::post('admin/setQrcode', 'AdminController@setQrcode'); // 设置充值二维码（已废弃）
     Route::post('admin/resetUserTraffic', 'AdminController@resetUserTraffic'); // 重置用户流量
     Route::post('admin/handleUserBalance', 'AdminController@handleUserBalance'); // 余额充值
     Route::get('admin/userBalanceLogList', 'AdminController@userBalanceLogList'); // 余额变动日志
@@ -91,9 +92,12 @@ Route::group(['middleware' => ['forbidden', 'user', 'admin']], function () {
     Route::post("admin/switchToUser", "AdminController@switchToUser"); // 转换成某个用户的身份
     Route::any("admin/decompile", "AdminController@decompile"); // SS(R)链接反解析
     Route::any("payment/callbackList", "PaymentController@callbackList"); // 有赞云支付回调日志
+    Route::get("marketing/emailList", "MarketingController@emailList"); // 邮件消息列表
+    Route::get("marketing/pushList", "MarketingController@pushList"); // 推送消息列表
+    Route::post("marketing/addPushMarketing", "MarketingController@addPushMarketing"); // 推送消息
 });
 
-Route::group(['middleware' => ['forbidden', 'user']], function () {
+Route::group(['middleware' => ['forbidden', 'user', 'affiliate']], function () {
     Route::any('/', 'UserController@index'); // 用户首页
     Route::any('user', 'UserController@index'); // 用户首页
     Route::any('user/article', 'UserController@article'); // 文章详情
@@ -121,4 +125,15 @@ Route::group(['middleware' => ['forbidden', 'user']], function () {
     Route::get('payment/getStatus', 'PaymentController@getStatus'); // 获取支付单状态
     Route::get('payment/{sn}', 'PaymentController@detail'); // 支付单详情
 
+});
+
+// V2Ray
+Route::group(['namespaces' => 'Muv2', 'prefix' => 'mu/v2', 'middleware' => ['Muv2']], function () {
+    Route::get('users', 'UserController@index');
+    Route::post('users/{id}/traffic', 'UserController@addTraffic');
+    Route::post('nodes/{id}/online_count', 'NodeController@onlineUserLog');
+    Route::post('nodes/{id}/info', 'NodeController@info');
+    Route::get('nodes/{id}/users', 'NodeController@users');
+    Route::get('nodes/{id}/v2rayUsers', 'NodeController@v2rayUsers');
+    Route::post('nodes/{id}/traffic', 'NodeController@postTraffic');
 });

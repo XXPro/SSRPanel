@@ -10,24 +10,18 @@ use App\Http\Models\PaymentCallback;
 use Illuminate\Http\Request;
 use Response;
 use Redirect;
+use Session;
 use Log;
 use DB;
 
 class PaymentController extends Controller
 {
-    protected static $config;
-
-    function __construct()
-    {
-        self::$config = $this->systemConfig();
-    }
-
     // 创建支付单
     public function create(Request $request)
     {
         $goods_id = intval($request->get('goods_id'));
         $coupon_sn = $request->get('coupon_sn');
-        $user = $request->session()->get('user');
+        $user = Session::get('user');
 
         $goods = Goods::query()->where('id', $goods_id)->where('status', 1)->first();
         if (!$goods) {
@@ -35,7 +29,7 @@ class PaymentController extends Controller
         }
 
         // 判断是否开启有赞云支付
-        if (!self::$config['is_youzan']) {
+        if (!$this->systemConfig['is_youzan']) {
             return Response::json(['status' => 'fail', 'data' => '', 'message' => '创建支付单失败：系统并未开启在线支付功能']);
         }
 
@@ -43,6 +37,16 @@ class PaymentController extends Controller
         $existsOrder = Order::query()->where('goods_id', $goods_id)->where('status', 0)->where('user_id', $user['id'])->first();
         if ($existsOrder) {
             return Response::json(['status' => 'fail', 'data' => '', 'message' => '创建支付单失败：尚有未支付的订单，请先去支付']);
+        }
+
+        // 限购控制
+        $strategy = $this->systemConfig['goods_purchase_limit_strategy'];
+        if ($strategy == 'all' || ($strategy == 'free' && $goods->price == 0)) {
+            // 判断是否已经购买过该商品
+            $noneExpireOrderExist = Order::query()->where('user_id', $user['id'])->where('goods_id', $goods_id)->where('status', '>=', 0)->where('is_expire', 0)->exists();
+            if ($noneExpireOrderExist) {
+                return Response::json(['status' => 'fail', 'data' => '', 'message' => '创建支付单失败：商品不可重复购买']);
+            }
         }
 
         // 使用优惠券
@@ -53,7 +57,7 @@ class PaymentController extends Controller
             }
 
             // 计算实际应支付总价
-            $amount = $coupon->type == 2 ? $goods->price * $coupon->discount : $goods->price - $coupon->amount;
+            $amount = $coupon->type == 2 ? $goods->price * $coupon->discount / 10 : $goods->price - $coupon->amount;
             $amount = $amount > 0 ? $amount : 0;
         } else {
             $amount = $goods->price;
@@ -66,7 +70,7 @@ class PaymentController extends Controller
 
         DB::beginTransaction();
         try {
-            $user = $request->session()->get('user');
+            $user = Session::get('user');
             $orderSn = date('ymdHis') . mt_rand(100000, 999999);
             $sn = makeRandStr(12);
 
@@ -107,9 +111,16 @@ class PaymentController extends Controller
             $payment->status = 0;
             $payment->save();
 
+            // 优惠券置为已使用
+            if (!empty($coupon)) {
+                Coupon::query()->where('id', $coupon->id)->update(['status' => 1]);
+
+                $this->addCouponLog($coupon->id, $goods_id, $order->oid, '在线支付使用');
+            }
+
             DB::commit();
 
-            return Response::json(['status' => 'success', 'data' => $sn, 'message' => '创建支付单成功']);
+            return Response::json(['status' => 'success', 'data' => $sn, 'message' => '创建支付单成功，正在转到付款页面，请稍后']);
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -126,7 +137,7 @@ class PaymentController extends Controller
             return Redirect::to('user/goodsList');
         }
 
-        $user = $request->session()->get('user');
+        $user = Session::get('user');
 
         $payment = Payment::query()->with(['order', 'order.goods'])->where('sn', $sn)->where('user_id', $user['id'])->first();
         if (!$payment) {
@@ -135,14 +146,15 @@ class PaymentController extends Controller
 
         $order = Order::query()->where('oid', $payment->oid)->first();
         if (!$order) {
-            $request->session()->flash('errorMsg', '订单不存在');
+            Session::flash('errorMsg', '订单不存在');
 
             return Response::view('payment/' . $sn);
         }
 
         $view['payment'] = $payment;
-        $view['website_analytics'] = self::$config['website_analytics'];
-        $view['website_customer_service'] = self::$config['website_customer_service'];
+        $view['website_logo'] = $this->systemConfig['website_logo'];
+        $view['website_analytics'] = $this->systemConfig['website_analytics'];
+        $view['website_customer_service'] = $this->systemConfig['website_customer_service'];
 
         return Response::view('payment/detail', $view);
     }
@@ -156,7 +168,7 @@ class PaymentController extends Controller
             return Response::json(['status' => 'fail', 'data' => '', 'message' => '请求失败']);
         }
 
-        $user = $request->session()->get('user');
+        $user = Session::get('user');
         $payment = Payment::query()->where('sn', $sn)->where('user_id', $user['id'])->first();
         if (!$payment) {
             return Response::json(['status' => 'fail', 'data' => '', 'message' => '支付失败']);
